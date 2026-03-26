@@ -14,7 +14,7 @@
 <title>Pixel Survivors</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{background:#0d0d14;height:100%;overflow:hidden;touch-action:none}
+html,body{background:#0d0d14;height:100%;overflow:auto;touch-action:none}
 #wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#0d0d14;font-family:'Courier New',monospace;user-select:none;padding:8px}
 #hud{width:min(720px,100vw);background:#111;border:2px solid #333;padding:5px 10px;display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap}
 .hl{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px}
@@ -22,7 +22,7 @@ html,body{background:#0d0d14;height:100%;overflow:hidden;touch-action:none}
 .bar{width:80px;height:8px;background:#222;border:1px solid #444;margin-top:2px}
 .bf{height:100%;transition:width .1s}
 canvas{display:block;cursor:crosshair;touch-action:none;max-width:100vw}
-#joy{margin-top:6px;touch-action:none;-webkit-tap-highlight-color:transparent}
+#joy{margin-top:8px;touch-action:none;-webkit-tap-highlight-color:transparent;border:2px solid #333;border-radius:50%}
 #hint{color:#555;font-size:11px;margin-top:4px;text-align:center}
 #installBtn{display:none;margin-top:8px;background:#1a1a2e;border:2px solid #4af;color:#4af;font-family:'Courier New',monospace;font-size:12px;padding:6px 18px;cursor:pointer;letter-spacing:1px}
 </style>
@@ -37,7 +37,7 @@ canvas{display:block;cursor:crosshair;touch-action:none;max-width:100vw}
     <div><div class="hl">Weapons</div><div class="hv" id="wv">Sword</div></div>
   </div>
   <canvas id="c"></canvas>
-  <canvas id="joy" width="130" height="130"></canvas>
+  <canvas id="joy" width="150" height="150"></canvas>
   <div id="hint">Joystick or WASD to move &bull; Weapons auto-fire &bull; Collect gems for XP</div>
   <button id="installBtn">[ + ADD TO HOME SCREEN ]</button>
 </div>
@@ -230,17 +230,25 @@ let joyX = 0, joyY = 0;
 // --- VIRTUAL JOYSTICK ---
 const jcv = document.getElementById('joy');
 const jctx = jcv.getContext('2d');
-const JR = 60, JKR = 22;
+const JR = 75, JKR = 26;
 let joyActive = false, joyKnobX = JR, joyKnobY = JR;
 
 function drawJoy() {
-  jctx.clearRect(0, 0, 130, 130);
-  jctx.beginPath(); jctx.arc(JR+5, JR+5, JR-2, 0, Math.PI*2);
-  jctx.fillStyle = 'rgba(30,30,50,0.7)'; jctx.fill();
-  jctx.strokeStyle = '#555'; jctx.lineWidth = 2; jctx.stroke();
-  jctx.beginPath(); jctx.arc(joyKnobX+5, joyKnobY+5, JKR, 0, Math.PI*2);
-  jctx.fillStyle = joyActive ? 'rgba(100,140,255,0.8)' : 'rgba(80,80,120,0.7)'; jctx.fill();
-  jctx.strokeStyle = joyActive ? '#8af' : '#666'; jctx.lineWidth = 2; jctx.stroke();
+  jctx.clearRect(0, 0, 150, 150);
+  jctx.beginPath(); jctx.arc(JR, JR, JR-4, 0, Math.PI*2);
+  jctx.fillStyle = 'rgba(30,30,50,0.8)'; jctx.fill();
+  jctx.strokeStyle = '#666'; jctx.lineWidth = 3; jctx.stroke();
+  // crosshair lines
+  jctx.strokeStyle='rgba(80,80,120,0.3)'; jctx.lineWidth=1;
+  jctx.beginPath(); jctx.moveTo(JR,10); jctx.lineTo(JR,140); jctx.stroke();
+  jctx.beginPath(); jctx.moveTo(10,JR); jctx.lineTo(140,JR); jctx.stroke();
+  // knob
+  jctx.beginPath(); jctx.arc(joyKnobX, joyKnobY, JKR, 0, Math.PI*2);
+  jctx.fillStyle = joyActive ? 'rgba(100,140,255,0.9)' : 'rgba(80,80,120,0.8)'; jctx.fill();
+  jctx.strokeStyle = joyActive ? '#8af' : '#888'; jctx.lineWidth = 3; jctx.stroke();
+  // knob highlight
+  jctx.beginPath(); jctx.arc(joyKnobX-5, joyKnobY-5, 8, 0, Math.PI*2);
+  jctx.fillStyle = 'rgba(255,255,255,0.15)'; jctx.fill();
 }
 drawJoy();
 
@@ -260,7 +268,8 @@ function joyEnd() { joyActive=false; joyKnobX=JR; joyKnobY=JR; joyX=0; joyY=0; d
 function joyPos(e) {
   const r = jcv.getBoundingClientRect();
   const t = e.changedTouches ? e.changedTouches[0] : e;
-  return { x: t.clientX - r.left - 5, y: t.clientY - r.top - 5 };
+  const sx = 150 / r.width, sy = 150 / r.height;
+  return { x: (t.clientX - r.left) * sx, y: (t.clientY - r.top) * sy };
 }
 
 ['pointerdown','touchstart'].forEach(ev => {
@@ -371,7 +380,7 @@ function spawnE() {
 let upMenu=false, upChoices=[];
 
 function doLevelUp() {
-  P.xp -= P.xpn; P.lv++; P.xpn = Math.floor(P.xpn*1.38);
+  P.xp -= P.xpn; P.lv++; P.xpn = Math.floor(P.xpn*1.25);
   upChoices = [...UPGRADES].sort(()=>Math.random()-0.5).slice(0,3).map(u=>{
     if(u.w&&P.wLv[u.w]){const lv=P.wLv[u.w];return {...u,n:u.n+' Lv'+(lv+1),d:u.d+' (now '+lv+')'};}
     return u;
@@ -417,7 +426,7 @@ function killE(i) {
   const e = enemies[i];
   prtcl(e.x,e.y,e.c,10);
   for(let j=0;j<Math.ceil(e.xp/3);j++)
-    gems.push({x:e.x+R(-10,10),y:e.y+R(-10,10),val:3,life:15});
+    gems.push({x:e.x+R(-10,10),y:e.y+R(-10,10),val:5,life:20});
   P.kills++; sfx('kill'); upd_hud();
   enemies.splice(i,1);
 }
