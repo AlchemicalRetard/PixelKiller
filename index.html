@@ -158,6 +158,70 @@ function sfx(type){
   }catch(e){}
 }
 
+// --- MIDI BGM PLAYER ---
+const MIDI_B64='TVRoZAAAAAYAAQADA8BNVHJrAAAACwD/UQMGyBwA/y8ATVRyawAAAKAAwVKLIJE0fwCRN3+DYIE0AACBNwAAkTV/g2CRPH8AgTUAg2CBPAAAkTt/g2CROX8AgTsAg2CBOQAAkTt/g2CROX8AgTsAg2CBOQAAkTt/g2CBOwAAkTl/g2CRO38AgTkAg2CBOwAAkTl/g2CRO38AgTkAAJE8f4NggTsAAIE8AACRPn+DYJFAfwCBPgCDYIFAAACRQX+DYIFBALRA/y8ATVRyawAAAFCDYJknf4NgmSd/AIknAINgiScAmiCZJ3+DYJknfwCJJwCDYIknAI8AmSN/g2CZI38AiSMAg2CJIwAAmSd/g2CJJwAAmSd/g2CJJwCtAP8vAA==';
+let bgmNotes=[], bgmPlaying=false, bgmIdx=0, bgmTime=0, bgmTempo=1;
+(function parseMidi(){
+  const raw=atob(MIDI_B64), bytes=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+  const tpq=(bytes[12]<<8)|bytes[13];
+  let pos=14, usPerQ=500000;
+  const notes=[];
+  while(pos<bytes.length){
+    if(bytes[pos]===0x4d&&bytes[pos+1]===0x54&&bytes[pos+2]===0x72&&bytes[pos+3]===0x6b){
+      const tlen=(bytes[pos+4]<<24)|(bytes[pos+5]<<16)|(bytes[pos+6]<<8)|bytes[pos+7];
+      let tp=pos+8, tend=tp+tlen, tick=0;
+      while(tp<tend){
+        let dt=0,b;
+        do{b=bytes[tp++];dt=(dt<<7)|(b&0x7f);}while(b&0x80);
+        tick+=dt;
+        const ev=bytes[tp];
+        if(ev===0xff){
+          const mt=bytes[tp+1];let ml=0,mb;tp+=2;
+          do{mb=bytes[tp++];ml=(ml<<7)|(mb&0x7f);}while(mb&0x80);
+          if(mt===0x51&&ml===3) usPerQ=(bytes[tp]<<16)|(bytes[tp+1]<<8)|bytes[tp+2];
+          tp+=ml;
+        } else if((ev&0xf0)===0x90){
+          const note=bytes[tp+1],vel=bytes[tp+2];
+          if(vel>0) notes.push({tick,note,vel});
+          tp+=3;
+        } else if((ev&0xf0)===0x80){tp+=3;}
+        else if((ev&0xf0)===0xc0||(ev&0xf0)===0xd0){tp+=2;}
+        else if((ev&0xf0)===0xe0||(ev&0xf0)===0xa0||(ev&0xf0)===0xb0){tp+=3;}
+        else{tp++;}
+      }
+      pos=tend;
+    } else{pos++;}
+  }
+  notes.sort((a,b)=>a.tick-b.tick);
+  const secPerTick=usPerQ/1e6/tpq;
+  let prevT=0;
+  for(const n of notes){
+    const t=n.tick*secPerTick;
+    bgmNotes.push({dt:t-prevT,note:n.note,vel:n.vel});
+    prevT=t;
+  }
+})();
+function bgmTick(dt){
+  if(!bgmPlaying||bgmNotes.length===0) return;
+  bgmTime-=dt*bgmTempo;
+  while(bgmTime<=0){
+    const n=bgmNotes[bgmIdx];
+    try{
+      const ac=ensureAudio(),t=ac.currentTime;
+      const freq=440*Math.pow(2,(n.note-69)/12);
+      const o=ac.createOscillator(),g=ac.createGain();
+      o.type='triangle';o.frequency.setValueAtTime(freq,t);
+      g.gain.setValueAtTime(0.06*(n.vel/127),t);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.35);
+      o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+0.35);
+    }catch(e){}
+    bgmIdx=(bgmIdx+1)%bgmNotes.length;
+    bgmTime+=bgmNotes[bgmIdx].dt/bgmTempo;
+    if(bgmTime<=0&&bgmIdx===0) bgmTime=0.1;
+  }
+}
+
 function resize() {
   const maxW = Math.min(580, window.innerWidth - 16);
   const maxH = Math.min(360, window.innerHeight - 220);
@@ -303,7 +367,7 @@ function scalePos(ex, ey) {
 function handleCanvasTap(clientX, clientY) {
   const r = cv.getBoundingClientRect();
   const {x:mx, y:my} = scalePos(clientX - r.left, clientY - r.top);
-  if(gs==='menu'){ensureAudio();gs='playing';init();return;}
+  if(gs==='menu'){ensureAudio();gs='playing';init();bgmPlaying=true;bgmIdx=0;bgmTime=0;return;}
   if(gs==='gameover'){gs='playing';init();return;}
   if(gs==='upgrade'){
     upChoices.forEach((_,i) => {
@@ -336,6 +400,8 @@ function killE(i) {
 function update(dt) {
   if(gs!=='playing') return;
   elapsed += dt;
+  bgmTempo=1+elapsed*0.003;
+  bgmTick(dt);
   const m=Math.floor(elapsed/60), s=Math.floor(elapsed%60);
   document.getElementById('tv').textContent = m+':'+(s<10?'0':'')+s;
 
@@ -366,7 +432,7 @@ function update(dt) {
       P.hp=Math.max(0,P.hp-dmg); P.invT=.7;
       dnums.push({x:W/2+R(-18,18),y:H/2-18,v:dmg,col:'#f55',life:.9});
       sfx('hit'); upd_hud();
-      if(P.hp<=0){sfx('gameover');gs='gameover';return;}
+      if(P.hp<=0){sfx('gameover');gs='gameover';bgmPlaying=false;return;}
     }
   }
 
