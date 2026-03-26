@@ -16,16 +16,13 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{background:#0d0d14;height:100%;overflow:hidden;touch-action:none}
 #wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#0d0d14;font-family:'Courier New',monospace;user-select:none;padding:8px}
-#hud{width:min(580px,100vw);background:#111;border:2px solid #333;padding:5px 10px;display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap}
+#hud{width:min(720px,100vw);background:#111;border:2px solid #333;padding:5px 10px;display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap}
 .hl{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px}
 .hv{font-size:12px;color:#eee;font-weight:bold;margin-top:1px}
 .bar{width:80px;height:8px;background:#222;border:1px solid #444;margin-top:2px}
 .bf{height:100%;transition:width .1s}
 canvas{display:block;cursor:crosshair;touch-action:none;max-width:100vw}
-#dpad{display:flex;flex-direction:column;align-items:center;margin-top:6px;gap:0}
-#drow{display:flex;gap:0}
-.db{width:52px;height:52px;background:#1a1a2a;border:2px solid #444;color:#aaa;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;touch-action:none}
-.db:active,.db.pressed{background:#333;border-color:#aaa}
+#joy{margin-top:6px;touch-action:none;-webkit-tap-highlight-color:transparent}
 #hint{color:#555;font-size:11px;margin-top:4px;text-align:center}
 #installBtn{display:none;margin-top:8px;background:#1a1a2e;border:2px solid #4af;color:#4af;font-family:'Courier New',monospace;font-size:12px;padding:6px 18px;cursor:pointer;letter-spacing:1px}
 </style>
@@ -40,15 +37,8 @@ canvas{display:block;cursor:crosshair;touch-action:none;max-width:100vw}
     <div><div class="hl">Weapons</div><div class="hv" id="wv">Sword</div></div>
   </div>
   <canvas id="c"></canvas>
-  <div id="dpad">
-    <div id="drow"><div class="db" id="bu">&#9650;</div></div>
-    <div id="drow">
-      <div class="db" id="bl">&#9668;</div>
-      <div class="db" id="bs" style="font-size:14px">&#9660;</div>
-      <div class="db" id="br">&#9658;</div>
-    </div>
-  </div>
-  <div id="hint">D-Pad or WASD to move &bull; Weapons auto-fire &bull; Collect gems for XP</div>
+  <canvas id="joy" width="130" height="130"></canvas>
+  <div id="hint">Joystick or WASD to move &bull; Weapons auto-fire &bull; Collect gems for XP</div>
   <button id="installBtn">[ + ADD TO HOME SCREEN ]</button>
 </div>
 
@@ -223,29 +213,64 @@ function bgmTick(dt){
 }
 
 function resize() {
-  const maxW = Math.min(580, window.innerWidth - 16);
-  const maxH = Math.min(360, window.innerHeight - 220);
-  const scale = Math.max(0.4, Math.min(maxW / 580, maxH / 360));
-  cv.width = Math.max(232, Math.floor(580 * scale));
-  cv.height = Math.max(144, Math.floor(360 * scale));
+  const maxSz = Math.min(720, window.innerWidth - 16, window.innerHeight - 180);
+  const scale = Math.max(0.3, maxSz / 720);
+  cv.width = Math.max(216, Math.floor(720 * scale));
+  cv.height = Math.max(216, Math.floor(720 * scale));
   cv.dataset.scale = scale;
 }
 resize();
 window.addEventListener('resize', resize);
 
-const W = 580, H = 360;
+const W = 720, H = 720;
 let gs = 'menu', lt = 0, elapsed = 0, spawnT = 0;
 const held = {};
+let joyX = 0, joyY = 0;
 
-['bu','bl','bs','br'].forEach(id => {
-  const el = document.getElementById(id);
-  const dir = {bu:'u',bl:'l',bs:'d',br:'r'}[id];
-  ['pointerdown','touchstart'].forEach(ev => {
-    el.addEventListener(ev, e => { held[dir] = true; e.preventDefault(); }, {passive:false});
-  });
-  ['pointerup','pointerleave','touchend','touchcancel'].forEach(ev => {
-    el.addEventListener(ev, e => { held[dir] = false; });
-  });
+// --- VIRTUAL JOYSTICK ---
+const jcv = document.getElementById('joy');
+const jctx = jcv.getContext('2d');
+const JR = 60, JKR = 22;
+let joyActive = false, joyKnobX = JR, joyKnobY = JR;
+
+function drawJoy() {
+  jctx.clearRect(0, 0, 130, 130);
+  jctx.beginPath(); jctx.arc(JR+5, JR+5, JR-2, 0, Math.PI*2);
+  jctx.fillStyle = 'rgba(30,30,50,0.7)'; jctx.fill();
+  jctx.strokeStyle = '#555'; jctx.lineWidth = 2; jctx.stroke();
+  jctx.beginPath(); jctx.arc(joyKnobX+5, joyKnobY+5, JKR, 0, Math.PI*2);
+  jctx.fillStyle = joyActive ? 'rgba(100,140,255,0.8)' : 'rgba(80,80,120,0.7)'; jctx.fill();
+  jctx.strokeStyle = joyActive ? '#8af' : '#666'; jctx.lineWidth = 2; jctx.stroke();
+}
+drawJoy();
+
+function joyMove(cx, cy) {
+  const dx = cx - JR, dy = cy - JR;
+  const dist = Math.hypot(dx, dy);
+  const maxD = JR - JKR;
+  if (dist > maxD) { joyKnobX = JR + dx/dist*maxD; joyKnobY = JR + dy/dist*maxD; }
+  else { joyKnobX = cx; joyKnobY = cy; }
+  const nd = Math.min(dist, maxD) / maxD;
+  const dead = 0.15;
+  if (nd < dead) { joyX = 0; joyY = 0; }
+  else { const a = Math.atan2(dy, dx); const s = (nd-dead)/(1-dead); joyX = Math.cos(a)*s; joyY = Math.sin(a)*s; }
+  drawJoy();
+}
+function joyEnd() { joyActive=false; joyKnobX=JR; joyKnobY=JR; joyX=0; joyY=0; drawJoy(); }
+function joyPos(e) {
+  const r = jcv.getBoundingClientRect();
+  const t = e.changedTouches ? e.changedTouches[0] : e;
+  return { x: t.clientX - r.left - 5, y: t.clientY - r.top - 5 };
+}
+
+['pointerdown','touchstart'].forEach(ev => {
+  jcv.addEventListener(ev, e => { e.preventDefault(); joyActive=true; const p=joyPos(e); joyMove(p.x,p.y); }, {passive:false});
+});
+['pointermove','touchmove'].forEach(ev => {
+  jcv.addEventListener(ev, e => { if(!joyActive) return; e.preventDefault(); const p=joyPos(e); joyMove(p.x,p.y); }, {passive:false});
+});
+['pointerup','pointerleave','touchend','touchcancel'].forEach(ev => {
+  jcv.addEventListener(ev, e => joyEnd());
 });
 
 document.addEventListener('keydown', e => {
@@ -303,7 +328,7 @@ function init() {
     shT:0,shCd:1.8,shDmg:11,shCount:4,
     mtT:0,mtCd:3.2,mtDmg:28,mtRad:36,
     chT:0,chCd:2.5,chDmg:13,chBounce:3,
-    xpr:50,invT:0,w:new Set(['sword']),wLv:{sword:1}};
+    xpr:80,invT:0,w:new Set(['sword']),wLv:{sword:1}};
   enemies=[]; projs=[]; gems=[]; dnums=[]; parts=[]; zones=[];
   elapsed=0; spawnT=0;
   for(let i=0;i<4;i++) spawnE();
@@ -408,9 +433,11 @@ function update(dt) {
   let dx=0,dy=0;
   if(held.l) dx-=1; if(held.r) dx+=1;
   if(held.u) dy-=1; if(held.d) dy+=1;
-  if(dx&&dy){dx*=.707;dy*=.707;}
+  dx+=joyX; dy+=joyY;
+  const mag=Math.hypot(dx,dy);
+  if(mag>1){dx/=mag;dy/=mag;}
   ox+=dx*P.spd*dt; oy+=dy*P.spd*dt;
-  if(dx||dy) P.lastDir=Math.atan2(dy,dx);
+  if(Math.abs(dx)>0.01||Math.abs(dy)>0.01) P.lastDir=Math.atan2(dy,dx);
   if(P.invT>0) P.invT-=dt;
 
   spawnT+=dt;
@@ -753,11 +780,11 @@ function update(dt) {
     const gx=g.x-ox, gy=g.y-oy;
     const d=D({x:W/2,y:H/2},{x:gx,y:gy});
     if(d<P.xpr){
-      const pull=Math.min(1,300*dt/Math.max(d,.1));
-      g.x+=(W/2+ox-g.x)*pull*dt*5;
-      g.y+=(H/2+oy-g.y)*pull*dt*5;
+      const pull=Math.min(1,800*dt/Math.max(d,.1));
+      g.x+=(W/2+ox-g.x)*pull*dt*12;
+      g.y+=(H/2+oy-g.y)*pull*dt*12;
     }
-    if(D({x:W/2,y:H/2},{x:g.x-ox,y:g.y-oy})<14){
+    if(D({x:W/2,y:H/2},{x:g.x-ox,y:g.y-oy})<20){
       P.xp+=g.val; gems.splice(i,1); sfx('xp');
       if(P.xp>=P.xpn) doLevelUp();
       upd_hud();
